@@ -69,7 +69,7 @@ function App() {
                 onClick={() => setEngine('csg')}
               >
                 <span className="engine-name">CSG Engine</span>
-                <span className="engine-desc">Context-Sensitive Grammar with formal derivation</span>
+                <span className="engine-desc">Context-Sensitive Grammar</span>
               </button>
               <button 
                 className={`engine-option ${engine === 'rule' ? 'active' : ''}`}
@@ -220,7 +220,7 @@ function App() {
             {result.derivation && result.derivation.length > 0 && (
               <details className="details-section" open={result.engine_used === 'csg'}>
                 <summary>
-                  {result.engine_used === 'csg' ? '📐 CSG Production Rules Applied' : 'View Derivation Steps'}
+                  {result.engine_used === 'csg' ? 'CSG Production Rules Applied' : 'View Derivation Steps'}
                 </summary>
                 <div className="derivation-section">
                   <DerivationSteps steps={result.derivation} />
@@ -234,7 +234,7 @@ function App() {
       <footer className="App-footer">
         <p>
           {engine === 'csg' 
-            ? '🎓 Using Context-Sensitive Grammar from Automata Theory' 
+            ? 'Using Context-Sensitive Grammar from Automata Theory' 
             : 'Using Rule-Based Pattern Matching'}
           {' • Flask + React + D3'}
         </p>
