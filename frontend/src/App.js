@@ -9,6 +9,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [engine, setEngine] = useState('csg'); // 'csg' or 'rule'
 
   const handleAnalyze = async () => {
     if (!sentence.trim()) {
@@ -21,7 +22,8 @@ function App() {
 
     try {
       const response = await axios.post('/parse', {
-        sentence: sentence
+        sentence: sentence,
+        engine: engine
       });
       setResult(response.data);
     } catch (err) {
@@ -51,11 +53,34 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>Subject–Verb Agreement</h1>
-        <p className="subtitle">Context-Sensitive Grammar Analysis</p>
+        <p className="subtitle">
+          {engine === 'csg' ? 'Context-Sensitive Grammar (Automata Theory)' : 'Rule-Based Analysis'}
+        </p>
       </header>
 
       <main className="main-content">
         <div className="input-section">
+          {/* Engine Selector */}
+          <div className="engine-selector">
+            <label className="engine-label">Grammar Engine:</label>
+            <div className="engine-options">
+              <button 
+                className={`engine-option ${engine === 'csg' ? 'active' : ''}`}
+                onClick={() => setEngine('csg')}
+              >
+                <span className="engine-name">CSG Engine</span>
+                <span className="engine-desc">Context-Sensitive Grammar with formal derivation</span>
+              </button>
+              <button 
+                className={`engine-option ${engine === 'rule' ? 'active' : ''}`}
+                onClick={() => setEngine('rule')}
+              >
+                <span className="engine-name">Rule-Based</span>
+                <span className="engine-desc">Pattern matching with heuristics</span>
+              </button>
+            </div>
+          </div>
+
           <div className="input-container">
             <textarea
               className="sentence-input"
@@ -162,10 +187,41 @@ function App() {
               </details>
             )}
 
+            {/* CSG Analysis Info */}
+            {result.csg_analysis && (
+              <details className="details-section csg-section" open>
+                <summary>CSG Derivation Analysis</summary>
+                <div className="csg-analysis">
+                  <div className="csg-info-grid">
+                    <div className="csg-info-item">
+                      <strong>Initial String:</strong>
+                      <code>{result.csg_analysis.initial_string}</code>
+                    </div>
+                    <div className="csg-info-item">
+                      <strong>Final String:</strong>
+                      <code>{result.csg_analysis.final_string}</code>
+                    </div>
+                    {result.csg_analysis.expected_string && (
+                      <div className="csg-info-item">
+                        <strong>Expected String:</strong>
+                        <code>{result.csg_analysis.expected_string}</code>
+                      </div>
+                    )}
+                    <div className="csg-info-item">
+                      <strong>Rules Applied:</strong>
+                      <span className="rule-count">{result.csg_analysis.rules_applied}</span>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            )}
+
             {/* Optional Details: Derivation Steps */}
             {result.derivation && result.derivation.length > 0 && (
-              <details className="details-section">
-                <summary>View Derivation Steps</summary>
+              <details className="details-section" open={result.engine_used === 'csg'}>
+                <summary>
+                  {result.engine_used === 'csg' ? '📐 CSG Production Rules Applied' : 'View Derivation Steps'}
+                </summary>
                 <div className="derivation-section">
                   <DerivationSteps steps={result.derivation} />
                 </div>
@@ -176,7 +232,12 @@ function App() {
       </main>
 
       <footer className="App-footer">
-        <p>Built with Context-Sensitive Grammar • Flask + React + D3</p>
+        <p>
+          {engine === 'csg' 
+            ? '🎓 Using Context-Sensitive Grammar from Automata Theory' 
+            : 'Using Rule-Based Pattern Matching'}
+          {' • Flask + React + D3'}
+        </p>
       </footer>
     </div>
   );
