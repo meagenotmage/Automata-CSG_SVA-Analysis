@@ -1,0 +1,30 @@
+.parse-tree-container {
+  width: 100%;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.parse-tree-container svg {
+  min-width: 600px;
+}
+
+.node {
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.node:hover circle {
+  r: 10;
+  filter: brightness(1.1);
+}
+
+.link {
+  transition: stroke 0.3s;
+}
+
+.node:hover ~ .link {
+  stroke: #667eea;
+  stroke-width: 3;
+}

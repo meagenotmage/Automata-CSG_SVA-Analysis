@@ -1,0 +1,26 @@
+{
+  "status": "error",
+  "message": "Subject–verb disagreement: 'cats' (plural) → 'runs' (singular)",
+  "problem_spans": [
+    { "type": "NP", "text": "cats", "start": 4, "end": 8, "features": { "number": "plural" } },
+    { "type": "V", "text": "runs", "start": 9, "end": 13, "features": { "number": "singular" } }
+  ],
+  "parse_tree": {
+    "label": "S",
+    "children": [
+      {
+        "label": "NP (plural)",
+        "children": [
+          { "label": "DET", "text": "The" },
+          { "label": "N", "text": "cats", "features": { "number": "plural" } }
+        ]
+      },
+      {
+        "label": "VP (singular)",
+        "children": [
+          { "label": "V", "text": "runs", "features": { "number": "singular" } }
+        ]
+      }
+    ]
+  }
+}
