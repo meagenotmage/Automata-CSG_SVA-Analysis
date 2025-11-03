@@ -18,7 +18,8 @@ automata/
 │   ├── app.py                      # Flask API server
 │   └── requirements.txt            # Python dependencies
 ├── grammar_engine/
-│   ├── engine.py                   # CSG-based analyzer
+|   |── csg-engine.py
+│   ├── engine.py                   # pattern-based analyzer
 │   └── extended_features.py        # Feature lookups (pronouns, auxiliaries, etc.)
 ├── frontend/
 │   ├── src/
