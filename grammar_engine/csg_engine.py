@@ -208,9 +208,13 @@ def classify_verb(verb: str) -> str:
     return 'plural'
 
 
-def find_subject_and_verb(tokens: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str], int, int]:
+def find_subject_and_verb(tokens: List[Dict[str, Any]], compound_info: Optional[Dict] = None) -> Tuple[Optional[str], Optional[str], int, int]:
     """
     Find the subject and verb in the sentence.
+    
+    Args:
+        tokens: List of token dictionaries
+        compound_info: Optional compound subject info to help skip past compound subjects
     
     Returns: (subject, verb, subject_index, verb_index)
     """
@@ -222,22 +226,44 @@ def find_subject_and_verb(tokens: List[Dict[str, Any]]) -> Tuple[Optional[str], 
     # Find subject (skip determiners and possessives)
     dets = {'the', 'a', 'an'}
     possessives = {'my', 'your', 'his', 'her', 'its', 'our', 'their'}
+    coordinators = {'and', 'or', 'nor'}
     
     subject = None
     subject_idx = -1
+    last_noun_idx = -1  # Track the last noun in compound subject
+    found_coordinator = False
+    nouns_after_coordinator = 0
     
     for i, w in enumerate(words):
         w_lower = w.lower()
         if w_lower in dets or w_lower in possessives:
             continue
+        if w_lower in coordinators:
+            found_coordinator = True
+            continue  # Skip coordinators when finding subject
         if w_lower not in AUXILIARIES and w_lower not in CONTRACTIONS:
-            subject = w
-            subject_idx = i
-            break
+            if subject is None:
+                subject = w
+                subject_idx = i
+            
+            # Update last_noun_idx, but stop after finding the second noun in compound
+            if found_coordinator:
+                nouns_after_coordinator += 1
+                if nouns_after_coordinator == 1:
+                    # This is the second noun in "X and Y"
+                    last_noun_idx = i
+                    break  # Stop here, we've found the complete compound subject
+            else:
+                # Still looking for first noun or no compound
+                last_noun_idx = i
     
     if subject is None:
         subject = words[0]
         subject_idx = 0
+        last_noun_idx = 0
+    
+    # If we have compound info, use the last noun index to skip past the entire compound subject
+    verb_search_start = last_noun_idx + 1 if compound_info else subject_idx + 1
     
     # Find verb (auxiliaries or main verb)
     verb = None
@@ -258,17 +284,24 @@ def find_subject_and_verb(tokens: List[Dict[str, Any]]) -> Tuple[Optional[str], 
                 verb_idx = i
                 break
     
-    # Find main verb
+    # Find main verb - start search AFTER the compound subject
     if verb is None:
-        for i in range(subject_idx + 1, len(words)):
+        for i in range(verb_search_start, len(words)):
             w = words[i]
+            w_lower = w.lower()
+            # Skip coordinators
+            if w_lower in coordinators:
+                continue
+            # Skip determiners
+            if w_lower in dets:
+                continue
             # Simple heuristic: word after subject that looks like a verb
-            if not w.lower().endswith(('ly', 'tion', 'ness', 'ment')):
+            if not w_lower.endswith(('ly', 'tion', 'ness', 'ment')):
                 verb = w
                 verb_idx = i
                 break
     
-    if verb is None and len(words) > subject_idx:
+    if verb is None and len(words) > verb_search_start:
         verb = words[-1]
         verb_idx = len(words) - 1
     
@@ -445,8 +478,8 @@ def analyze(sentence: str) -> Dict[str, Any]:
     # Detect compound subjects
     compound_info = detect_compound_subject(words)
     
-    # Find subject and verb
-    subject, verb, subj_idx, verb_idx = find_subject_and_verb(tokens)
+    # Find subject and verb (pass compound_info to help skip past compound subjects)
+    subject, verb, subj_idx, verb_idx = find_subject_and_verb(tokens, compound_info)
     
     if subject is None or verb is None:
         return {

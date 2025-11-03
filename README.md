@@ -44,10 +44,10 @@ automata/
 
 ```powershell
 # Install dependencies
-C:/Users/meagie/Desktop/3A/Projects/automata/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
+-m pip install -r backend/requirements.txt
 
 # Run the Flask server
-C:/Users/meagie/Desktop/3A/Projects/automata/.venv/Scripts/python.exe backend/app.py
+backend/app.py
 ```
 
 Server runs on `http://localhost:5000`
@@ -66,13 +66,13 @@ Frontend runs on `http://localhost:3000` (proxied to backend)
 
 ```powershell
 # Run all tests
-C:/Users/meagie/Desktop/3A/Projects/automata/.venv/Scripts/python.exe -m pytest -v
+-m pytest -v
 
 # Run unit tests only
-C:/Users/meagie/Desktop/3A/Projects/automata/.venv/Scripts/python.exe -m pytest tests/test_engine.py -v
+-m pytest tests/test_engine.py -v
 
 # Run integration tests only
-C:/Users/meagie/Desktop/3A/Projects/automata/.venv/Scripts/python.exe -m pytest tests/test_integration.py -v
+-m pytest tests/test_integration.py -v
 ```
 
 ## API Usage
