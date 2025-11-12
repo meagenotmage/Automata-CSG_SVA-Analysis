@@ -312,6 +312,9 @@ def detect_compound_subject(words: List[str]) -> Optional[Dict[str, Any]]:
     """
     Detect compound subjects with coordinators.
     
+    Only detects compounds like "Tom and Mary" (nouns joined by coordinator),
+    NOT compound sentences like "She sings and he dances" (where there's a verb before the coordinator).
+    
     Returns: {
         'coordinator': 'and' | 'or' | 'nor',
         'subjects': [subject1, subject2],
@@ -323,6 +326,20 @@ def detect_compound_subject(words: List[str]) -> Optional[Dict[str, Any]]:
         if w_lower in {'and', 'or', 'nor'}:
             if i > 0 and i < len(words) - 1:
                 before = words[i-1]
+                before_lower = before.lower()
+                
+                # Check if word before coordinator is a verb - if so, this is likely a compound sentence, not compound subject
+                is_verb_before = (before_lower in AUXILIARIES or 
+                                 before_lower in IRREGULAR_VERBS or
+                                 before_lower in CONTRACTIONS or
+                                 (before_lower.endswith(('s', 'ed', 'ing')) and 
+                                  before_lower not in PRONOUNS and
+                                  len(before_lower) > 3))
+                
+                # If there's a verb before the coordinator, skip (this is a compound sentence)
+                if is_verb_before:
+                    continue
+                
                 after_idx = i + 1
                 
                 # Skip determiners
@@ -331,6 +348,18 @@ def detect_compound_subject(words: List[str]) -> Optional[Dict[str, Any]]:
                 
                 if after_idx < len(words):
                     after = words[after_idx]
+                    after_lower = after.lower()
+                    
+                    # Check if word after coordinator is a pronoun that could start a new clause
+                    # If so, and there's a verb following, this is a compound sentence
+                    if after_lower in PRONOUNS and after_idx + 1 < len(words):
+                        next_word = words[after_idx + 1].lower()
+                        is_verb_after = (next_word in AUXILIARIES or 
+                                        next_word in IRREGULAR_VERBS or
+                                        next_word.endswith(('s', 'ed', 'ing')))
+                        if is_verb_after:
+                            # This is a compound sentence, not a compound subject
+                            continue
                     
                     # Rule 3: "and" → plural
                     if w_lower == 'and':
@@ -350,6 +379,329 @@ def detect_compound_subject(words: List[str]) -> Optional[Dict[str, Any]]:
                         }
     
     return None
+
+
+def split_compound_sentence(tokens: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """
+    Split a compound sentence into individual clauses.
+    
+    Detects coordinators (and, or, but, yet, so, for, nor) between clauses
+    and splits the sentence accordingly.
+    
+    Returns: List of token lists, one per clause
+    """
+    clause_coordinators = {'and', 'or', 'but', 'yet', 'so', 'for', 'nor'}
+    
+    # Common base verbs (infinitive forms)
+    common_verbs = {'be', 'have', 'do', 'say', 'get', 'make', 'go', 'know', 'take', 'see', 
+                   'come', 'think', 'look', 'want', 'give', 'use', 'find', 'tell', 'ask',
+                   'work', 'seem', 'feel', 'try', 'leave', 'call', 'run', 'play', 'sing',
+                   'dance', 'write', 'read', 'watch', 'fix', 'study', 'love', 'like', 'need',
+                   'help', 'talk', 'turn', 'start', 'show', 'hear', 'move', 'live', 'bring',
+                   'sit', 'stand', 'eat', 'drink', 'sleep', 'walk', 'drive', 'teach', 'learn'}
+    
+    words = [t['text'] for t in tokens if re.match(r"\w+(?:'\w+)?", t['text'])]
+    
+    clauses = []
+    current_clause = []
+    found_first_verb = False
+    verb_count = 0
+    
+    for i, token in enumerate(tokens):
+        word = token['text']
+        w_lower = word.lower()
+        
+        # Check if this word is likely a verb
+        # Strip common endings to get base form
+        base_verb = w_lower
+        if w_lower.endswith('ing'):
+            base_verb = w_lower[:-3]
+        elif w_lower.endswith('ed'):
+            base_verb = w_lower[:-2] if not w_lower.endswith('eed') else w_lower[:-1]
+        elif w_lower.endswith('es'):
+            base_verb = w_lower[:-2]
+        elif w_lower.endswith('s'):
+            base_verb = w_lower[:-1]
+        elif w_lower.endswith('ies'):
+            base_verb = w_lower[:-3] + 'y'
+        
+        is_likely_verb = (w_lower in AUXILIARIES or 
+                         w_lower in CONTRACTIONS or 
+                         w_lower in IRREGULAR_VERBS or
+                         base_verb in common_verbs or
+                         (w_lower.endswith(('s', 'es', 'ed', 'ing')) and 
+                          w_lower not in PRONOUNS and
+                          w_lower not in {'the', 'a', 'an', 'this', 'that', 'these', 'those', 'his', 'her', 'its', 'our', 'their'} and
+                          len(w_lower) > 2))
+        
+        if is_likely_verb and i > 0:
+            found_first_verb = True
+            verb_count += 1
+        
+        # Check for coordinator that might split clauses
+        if (w_lower in clause_coordinators and 
+            found_first_verb and 
+            verb_count >= 1 and
+            len(current_clause) > 1 and
+            i < len(tokens) - 2):
+            
+            # Look ahead: check if next word(s) form a new subject-verb pattern
+            next_tokens = [t for t in tokens[i+1:i+4] if re.match(r"\w+(?:'\w+)?", t['text'])]
+            
+            if len(next_tokens) >= 2:
+                next_word = next_tokens[0]['text']
+                next_word_lower = next_word.lower()
+                second_word = next_tokens[1]['text'] if len(next_tokens) > 1 else ""
+                second_word_lower = second_word.lower()
+                
+                # Check if next word is a pronoun, determiner, or potential noun (start of new clause)
+                is_determiner_or_pronoun = (next_word_lower in PRONOUNS or 
+                                           next_word_lower in {'the', 'a', 'an', 'this', 'that', 'these', 'those'})
+                
+                # Check if it's a proper noun (capitalized) or any word that's not a verb/coordinator
+                is_potential_noun = (next_word[0].isupper() or 
+                                    (next_word_lower not in clause_coordinators and 
+                                     next_word_lower not in AUXILIARIES and
+                                     next_word_lower not in IRREGULAR_VERBS))
+                
+                is_new_clause_start = is_determiner_or_pronoun or is_potential_noun
+                
+                # Strip endings to check if second word is a verb
+                second_base = second_word_lower
+                if second_word_lower.endswith('ing'):
+                    second_base = second_word_lower[:-3]
+                elif second_word_lower.endswith('ed'):
+                    second_base = second_word_lower[:-2]
+                elif second_word_lower.endswith('es'):
+                    second_base = second_word_lower[:-2]
+                elif second_word_lower.endswith('s'):
+                    second_base = second_word_lower[:-1]
+                elif second_word_lower.endswith('ies'):
+                    second_base = second_word_lower[:-3] + 'y'
+                
+                # Check if the second word looks like a verb
+                has_following_verb = (second_word_lower in AUXILIARIES or 
+                                    second_word_lower in IRREGULAR_VERBS or
+                                    second_word_lower in CONTRACTIONS or
+                                    second_base in common_verbs or
+                                    (second_word_lower.endswith(('s', 'es', 'ed', 'ing')) and len(second_word) > 2))
+                
+                if is_new_clause_start and has_following_verb:
+                    # Save current clause
+                    if current_clause:
+                        clauses.append(current_clause)
+                    
+                    # Start new clause
+                    current_clause = []
+                    found_first_verb = False
+                    verb_count = 0
+                    continue
+        
+        current_clause.append(token)
+    
+    # Add final clause
+    if current_clause:
+        clauses.append(current_clause)
+    
+    # If we only found one clause, return the original
+    if len(clauses) <= 1:
+        return [tokens]
+    
+    return clauses
+
+
+def analyze_compound_sentence(sentence: str, clauses: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """
+    Analyze a compound sentence by analyzing each clause separately.
+    
+    Returns combined analysis with per-clause results.
+    """
+    # Extract coordinators from the original sentence
+    clause_coordinators = {'and', 'or', 'but', 'yet', 'so', 'for', 'nor'}
+    original_tokens = tokenize(sentence)
+    coordinators = [t['text'] for t in original_tokens if t['text'].lower() in clause_coordinators]
+    
+    clause_analyses = []
+    all_problems = []
+    all_parse_trees = []
+    
+    for i, clause_tokens in enumerate(clauses):
+        # Reconstruct clause text
+        clause_text = ' '.join([t['text'] for t in clause_tokens])
+        
+        # Analyze this clause
+        clause_result = analyze_single_clause(clause_tokens, clause_text)
+        
+        clause_analyses.append({
+            'clause_number': i + 1,
+            'text': clause_text,
+            'analysis': clause_result
+        })
+        
+        # Collect problems
+        if clause_result.get('status') == 'error':
+            all_problems.extend(clause_result.get('problem_spans', []))
+        
+        # Collect parse trees
+        if 'parse_tree' in clause_result:
+            all_parse_trees.append(clause_result['parse_tree'])
+    
+    # Determine overall status
+    has_errors = any(c['analysis'].get('status') == 'error' for c in clause_analyses)
+    
+    # Build compound parse tree
+    compound_tree = {
+        'label': 'S (Compound)',
+        'children': all_parse_trees
+    }
+    
+    if has_errors:
+        error_messages = [c['analysis']['message'] for c in clause_analyses if c['analysis'].get('status') == 'error']
+        
+        # Build full corrected sentence by combining corrected clauses with coordinators
+        corrected_parts = []
+        for idx, c in enumerate(clause_analyses):
+            if c['analysis'].get('status') == 'error' and 'suggested_correction' in c['analysis']:
+                # Use suggested correction, removing trailing punctuation
+                corrected_text = c['analysis']['suggested_correction'].rstrip(' .')
+                corrected_parts.append(corrected_text)
+            else:
+                # Use original text, removing trailing punctuation
+                corrected_parts.append(c['text'].rstrip(' .'))
+            
+            # Add coordinator between clauses (but not after the last clause)
+            if idx < len(clause_analyses) - 1 and idx < len(coordinators):
+                corrected_parts.append(coordinators[idx])
+        
+        # Add final punctuation
+        suggested_full_sentence = ' '.join(corrected_parts) + '.'
+        
+        return {
+            'status': 'error',
+            'message': f"Found {len(error_messages)} error(s) in compound sentence.",
+            'is_compound': True,
+            'clause_count': len(clauses),
+            'clause_analyses': clause_analyses,
+            'problem_spans': all_problems,
+            'parse_tree': compound_tree,
+            'suggested_correction': suggested_full_sentence,
+            'original_sentence': sentence
+        }
+    else:
+        return {
+            'status': 'ok',
+            'message': f"All {len(clauses)} clauses have correct subject-verb agreement.",
+            'is_compound': True,
+            'clause_count': len(clauses),
+            'clause_analyses': clause_analyses,
+            'parse_tree': compound_tree
+        }
+
+
+def analyze_single_clause(tokens: List[Dict[str, Any]], clause_text: str) -> Dict[str, Any]:
+    """Analyze a single clause (used for both simple and compound sentences)."""
+    words = [t['text'] for t in tokens if re.match(r"\w+(?:'\w+)?", t['text'])]
+    
+    if not words:
+        return {
+            'status': 'error',
+            'message': 'Unable to parse clause (too short).'
+        }
+    
+    # Detect compound subjects
+    compound_info = detect_compound_subject(words)
+    
+    # Find subject and verb
+    subject, verb, subj_idx, verb_idx = find_subject_and_verb(tokens, compound_info)
+    
+    if subject is None or verb is None:
+        return {
+            'status': 'error',
+            'message': 'Unable to identify subject and verb.'
+        }
+    
+    # Classify subject and verb
+    if compound_info:
+        subject_category = 'compound'
+        subject_number = compound_info['compound_number']
+        display_subject = f"{compound_info['subjects'][0]} {compound_info['coordinator']} {compound_info['subjects'][1]}"
+    else:
+        subject_category, subject_number = classify_noun(subject)
+        display_subject = subject
+    
+    verb_number = classify_verb(verb)
+    
+    # Create initial CSG parse string
+    parse_string = create_initial_parse_string(
+        subject, verb, subject_category, subject_number, verb_number, compound_info
+    )
+    
+    # Apply CSG derivation
+    derivation_steps, final_string, is_correct = apply_csg_derivation(parse_string, subject_number)
+    
+    # Build parse tree
+    parse_tree = {
+        'label': 'S',
+        'children': [
+            {
+                'label': f"NP ({subject_number})",
+                'children': [
+                    {'label': 'N', 'text': display_subject, 'features': {'number': subject_number}}
+                ]
+            },
+            {
+                'label': f"VP ({verb_number})",
+                'children': [
+                    {'label': 'V', 'text': verb, 'features': {'number': verb_number}}
+                ]
+            }
+        ]
+    }
+    
+    # Determine if there's an agreement error
+    agreement_ok = subject_number == verb_number
+    
+    if agreement_ok:
+        return {
+            'status': 'ok',
+            'message': f"Subject-verb agreement is correct. Subject '{display_subject}' ({subject_number}) agrees with verb '{verb}' ({verb_number}).",
+            'problem_spans': [],
+            'parse_tree': parse_tree,
+            'derivation': derivation_steps,
+            'csg_analysis': {
+                'initial_string': parse_string,
+                'final_string': final_string,
+                'rules_applied': len([d for d in derivation_steps if d['rule'] is not None])
+            }
+        }
+    else:
+        # Generate correction
+        correct_verb = get_correct_verb_form(verb, subject_number)
+        suggested_sentence = clause_text.replace(verb, correct_verb)
+        
+        return {
+            'status': 'error',
+            'message': f"Subject-verb disagreement: '{display_subject}' ({subject_number}) does not agree with '{verb}' ({verb_number}).",
+            'problem_spans': [
+                {
+                    'type': 'subject',
+                    'text': display_subject,
+                    'features': {'number': subject_number},
+                    'subject_features': {'number': subject_number},
+                    'verb_features': {'number': verb_number}
+                }
+            ],
+            'parse_tree': parse_tree,
+            'derivation': derivation_steps,
+            'original_sentence': clause_text,
+            'suggested_correction': suggested_sentence,
+            'csg_analysis': {
+                'initial_string': parse_string,
+                'final_string': final_string,
+                'expected_string': f"NP[{subject_number}] VP[{subject_number}]",
+                'rules_applied': len([d for d in derivation_steps if d['rule'] is not None])
+            }
+        }
 
 
 # ============================================================================
@@ -448,9 +800,26 @@ def get_correct_verb_form(verb: str, target_number: str) -> str:
     # Handle regular verbs
     if target_number == 'singular':
         if not v_lower.endswith('s'):
-            return verb + 's'
+            # Apply -es for verbs ending in s, sh, ch, x, z, o
+            if v_lower.endswith(('s', 'sh', 'ch', 'x', 'z')) or (v_lower.endswith('o') and not v_lower.endswith(('oo', 'eo', 'io'))):
+                return verb + 'es'
+            # Apply -ies for verbs ending in consonant + y
+            elif v_lower.endswith('y') and len(v_lower) > 1 and v_lower[-2] not in 'aeiou':
+                return verb[:-1] + 'ies'
+            else:
+                return verb + 's'
     else:
-        if v_lower.endswith('s') and v_lower not in {'is', 'has', 'does', 'was'}:
+        # Convert singular to plural
+        if v_lower.endswith('ies'):
+            return verb[:-3] + 'y'
+        elif v_lower.endswith('es') and len(v_lower) > 2:
+            # Check if base ends in s, sh, ch, x, z, o
+            base = verb[:-2]
+            if base.endswith(('s', 'sh', 'ch', 'x', 'z', 'o')):
+                return base
+            else:
+                return verb[:-1]  # Just remove 's'
+        elif v_lower.endswith('s') and v_lower not in {'is', 'has', 'does', 'was'}:
             return verb[:-1]
     
     return verb
@@ -464,6 +833,8 @@ def analyze(sentence: str) -> Dict[str, Any]:
     """
     Analyze sentence using Context-Sensitive Grammar.
     
+    Handles both simple sentences and compound sentences (multiple clauses).
+    
     Returns a complete analysis with CSG derivation steps.
     """
     tokens = tokenize(sentence)
@@ -475,102 +846,15 @@ def analyze(sentence: str) -> Dict[str, Any]:
             'message': 'Unable to parse sentence (too short or not supported).'
         }
     
-    # Detect compound subjects
-    compound_info = detect_compound_subject(words)
+    # Check if this is a compound sentence
+    clauses = split_compound_sentence(tokens)
     
-    # Find subject and verb (pass compound_info to help skip past compound subjects)
-    subject, verb, subj_idx, verb_idx = find_subject_and_verb(tokens, compound_info)
+    if len(clauses) > 1:
+        # Compound sentence - analyze each clause
+        return analyze_compound_sentence(sentence, clauses)
     
-    if subject is None or verb is None:
-        return {
-            'status': 'error',
-            'message': 'Unable to identify subject and verb.'
-        }
-    
-    # Classify subject and verb
-    if compound_info:
-        subject_category = 'compound'
-        subject_number = compound_info['compound_number']
-        display_subject = f"{compound_info['subjects'][0]} {compound_info['coordinator']} {compound_info['subjects'][1]}"
-    else:
-        subject_category, subject_number = classify_noun(subject)
-        display_subject = subject
-    
-    verb_number = classify_verb(verb)
-    
-    # Create initial CSG parse string
-    parse_string = create_initial_parse_string(
-        subject, verb, subject_category, subject_number, verb_number, compound_info
-    )
-    
-    # Apply CSG derivation
-    derivation_steps, final_string, is_correct = apply_csg_derivation(parse_string, subject_number)
-    
-    # Build parse tree
-    subject_token = {'text': display_subject, 'features': {'number': subject_number}}
-    verb_token = {'text': verb, 'features': {'number': verb_number}}
-    
-    parse_tree = {
-        'label': 'S',
-        'children': [
-            {
-                'label': f"NP ({subject_number})",
-                'children': [
-                    {'label': 'N', 'text': display_subject, 'features': {'number': subject_number}}
-                ]
-            },
-            {
-                'label': f"VP ({verb_number})",
-                'children': [
-                    {'label': 'V', 'text': verb, 'features': {'number': verb_number}}
-                ]
-            }
-        ]
-    }
-    
-    # Determine if there's an agreement error
-    agreement_ok = subject_number == verb_number
-    
-    if agreement_ok:
-        return {
-            'status': 'ok',
-            'message': f"Subject-verb agreement is correct. Subject '{display_subject}' ({subject_number}) agrees with verb '{verb}' ({verb_number}).",
-            'problem_spans': [],
-            'parse_tree': parse_tree,
-            'derivation': derivation_steps,
-            'csg_analysis': {
-                'initial_string': parse_string,
-                'final_string': final_string,
-                'rules_applied': len([d for d in derivation_steps if d['rule'] is not None])
-            }
-        }
-    else:
-        # Generate correction
-        correct_verb = get_correct_verb_form(verb, subject_number)
-        suggested_sentence = sentence.replace(verb, correct_verb)
-        
-        return {
-            'status': 'error',
-            'message': f"Subject-verb disagreement: '{display_subject}' ({subject_number}) does not agree with '{verb}' ({verb_number}).",
-            'problem_spans': [
-                {
-                    'type': 'subject',
-                    'text': display_subject,
-                    'features': {'number': subject_number},
-                    'subject_features': {'number': subject_number},
-                    'verb_features': {'number': verb_number}
-                }
-            ],
-            'parse_tree': parse_tree,
-            'derivation': derivation_steps,
-            'suggested_correction': suggested_sentence,
-            'csg_analysis': {
-                'initial_string': parse_string,
-                'final_string': final_string,
-                'expected_string': f"NP[{subject_number}] VP[{subject_number}]",
-                'rules_applied': len([d for d in derivation_steps if d['rule'] is not None])
-            }
-        }
+    # Simple sentence - analyze normally
+    return analyze_single_clause(tokens, sentence)
 
 
 # ============================================================================
@@ -581,6 +865,7 @@ if __name__ == '__main__':
     import json
     
     test_sentences = [
+        # Simple sentences
         "The cat runs.",                    # OK: singular
         "The cats run.",                    # OK: plural
         "The cats runs.",                   # ERROR: plural noun, singular verb
@@ -595,6 +880,23 @@ if __name__ == '__main__':
         "Mathematics is difficult.",        # OK: singular plural (Rule 9)
         "They don't run.",                  # OK: contraction
         "They doesn't run.",                # ERROR: plural with singular contraction
+        
+        # Verbs with -es endings
+        "She watches movies.",              # OK: singular with -es
+        "They watch movies.",               # OK: plural
+        "He fixes computers.",              # OK: singular with -es
+        "She goes home.",                   # OK: singular with -es (consonant + o)
+        "They go home.",                    # OK: plural
+        "He studies hard.",                 # OK: singular with -ies (consonant + y)
+        "They study hard.",                 # OK: plural
+        
+        # Compound sentences
+        "The cat runs and the dog barks.",  # OK: both clauses correct
+        "The cats run and the dogs bark.",  # OK: both clauses correct
+        "The cat runs but the dogs barks.", # ERROR: second clause wrong
+        "She sings and he dances.",         # OK: both clauses correct
+        "I work and they plays.",           # ERROR: second clause wrong
+        "Tom studies but Mary play.",       # ERROR: second clause wrong
     ]
     
     for sent in test_sentences:
